@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+<head>
+   <title>Games Site</title>
+</head>
+<body>
+    <div style="display: flex; gap: 24px; align-items: flex-start;">
+    <canvas id="game" width="400" height="400" style="border: 1px solid black"></canvas>
+
+        <div>
+            <h3>Top 10 (Snake)</h3>
+            <table border="1" cellpadding="6" style="border-collapse: collapse;">
+                <thead>
+                    <tr><th>#</th><th>Player</th><th>Score</th></tr>
+                </thead>
+                <tbody id="board"></tbody>
+            </table>
+        </div>
+    </div>
+    <p id="score">Score: 0</p>
+    <p id="status"></p>
+    <p id="high"> High score: 0</p>
+    <button id="restart">Start</button>
+    <input id="name" placeholder="Your name" maxlength="20">
+    <p id="saveStatus"></p>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+          <script>
+        const { createClient } = supabase;
+        const db = createClient("https://gjbznaotizgkatwmyjya.supabase.co", "sb_publishable_B2x-sQX2QEFvuiDL7YI05Q_fckPOcZd");
+        const canvas = document.getElementById("game");
+        const ctx = canvas.getContext("2d");
+        const cell = 20;
+        const cols = canvas.width / cell;
+        const rows = canvas.height / cell;
+ 
+        let snake, dx, dy, nextDx, nextDy, foodX, foodY, score;
+        let playerName = "";
+        let timer;
+        let highScore = Number(localStorage.getItem("snakeHigh")) || 0;
+        document.getElementById("high").textContent = "High score: " + highScore;
+
+        function turn(newDx, newDy) {
+            if (newDx === -dx && newDy === -dy) {
+                return;
+            }
+            nextDx = newDx;
+            nextDy = newDy;
+        }
+
+        document.addEventListener("keydown", function (event) {
+            if (event.target.id === "name") {
+                return;  
+            }
+
+            const key = event.key.toLowerCase();
+
+            if (key.startsWith("arrow")) {
+                event.preventDefault();   // stop arrow keys scrolling the page
+            }
+
+            if (key === "arrowleft"  || key === "a") { turn(-1, 0); }
+            if (key === "arrowright" || key === "d") { turn(1, 0); }
+            if (key === "arrowup"    || key === "w") { turn(0, -1); }
+            if (key === "arrowdown"  || key === "s") { turn(0, 1); }
+        });
+
+        function resetgame(){
+            snake = [ {x: 5, y: 5} ];
+            dx = 1;
+            dy = 0;
+            nextDx = 1;
+            nextDy = 0;
+            score = 0;
+            foodX = Math.floor(Math.random() * cols);
+            foodY = Math.floor(Math.random() * rows);
+            document.getElementById("score").textContent = "Score: 0";
+            document.getElementById("status").textContent = "";
+            document.getElementById("saveStatus").textContent = "";
+        }
+        
+       async function loadLeaderboard() {
+            const { data, error } = await db
+                .from("leaderboard")
+                .select("player_name, best_score")
+                .eq("game", "snake")
+                .order("best_score", { ascending: false })
+                .limit(10);
+
+            const board = document.getElementById("board");
+            board.innerHTML = "";
+
+            if (error) {
+                const row = board.insertRow();
+                row.insertCell().textContent = "Could not load: " + error.message;
+                return;
+            }
+
+            for (let i = 0; i < data.length; i++) {
+                const row = board.insertRow();
+                row.insertCell().textContent = i + 1;
+                row.insertCell().textContent = data[i].player_name;
+                row.insertCell().textContent = data[i].best_score;
+            }
+        }
+
+        async function submitScore() {
+            const saveStatus = document.getElementById("saveStatus");
+            const { error } = await db.from("scores").insert({
+                player_name: playerName,
+                game: "snake",
+                score: score
+            });
+            if (error) {
+                saveStatus.textContent = "Could not save: " + error.message;
+            } else {
+                saveStatus.textContent = "Score saved!";
+                loadLeaderboard();
+            }
+        }
+
+        function gameLoop() {
+            dx = nextDx;
+            dy = nextDy;
+            let newX = snake[0].x + dx;
+            let newY = snake[0].y + dy;
+
+            if (newX >= cols){
+                newX = 0;
+            }
+            if (newX < 0){
+                newX = cols - 1;
+            }
+            
+            if (newY >= rows){
+                newY = 0;
+            }
+            if (newY < 0){
+                newY = rows - 1;
+            }
+            for (let i = 0; i < snake.length; i++){
+                if (snake[i].x === newX && snake[i].y === newY) {
+                    clearInterval(timer);
+                    document.getElementById("status").textContent = "Game over! Final score: " + score;
+                    if (score > highScore){
+                        highScore = score;
+                        localStorage.setItem("snakeHigh", highScore);
+                        document.getElementById("high").textContent = "High Score: " + highScore;
+                    }
+                    submitScore();
+                    return;
+                }
+            }
+            snake.unshift({x: newX, y: newY});
+            
+            if (foodX === newX && foodY === newY){
+                score = score + 1;
+                document.getElementById("score").textContent = "Score: " + score;
+                foodX = Math.floor(Math.random() * cols);
+                foodY = Math.floor(Math.random() * rows);
+            }
+            else {
+                snake.pop();
+            }
+                
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+            ctx.fillStyle = "red";
+            ctx.fillRect(foodX * cell, foodY * cell, cell, cell);
+
+            ctx.fillStyle = "green";
+            for (let i = 0; i < snake.length; i++){
+            ctx.fillRect(snake[i].x * cell, snake[i].y * cell, cell, cell);
+            }
+        }
+        
+        function restartGame() {
+            const name = document.getElementById("name").value.trim();
+            if (name === "") {
+                document.getElementById("status").textContent = "Enter your name first, then press Start.";
+                return;
+            }
+            playerName = name;
+
+            clearInterval(timer);
+            resetgame();
+            timer = setInterval(gameLoop, 175);
+
+            const btn = document.getElementById("restart");
+            btn.textContent = "Restart";
+            btn.blur();   // so Space/Enter can't re-press the button mid-game
+        } 
+
+        document.getElementById("restart").addEventListener("click", restartGame);
+
+        resetgame();
+        document.getElementById("status").textContent = "Enter your name, then press Start.";
+        loadLeaderboard();
+
+    </script>
+</body>
+</html>
